@@ -1,3 +1,4 @@
+###########################################################
 
 pkgTest <- function(x)
 {
@@ -8,39 +9,20 @@ pkgTest <- function(x)
   }
 }
 pkgTest("asbio")
-pkgTest("blavaan")
-pkgTest("chisq.posthoc.test")
-pkgTest("data.table")
-pkgTest("emmeans")
-pkgTest("forcats")
-pkgTest("foreign")
-pkgTest("inspectdf")
-pkgTest("knitr")
-pkgTest("gridExtra")
-pkgTest("ggpubr")
-pkgTest("ggpmisc")
-pkgTest("lattice")
+pkgTest("moments")
 pkgTest("lavaan")
 pkgTest("lavaanPlot")
-pkgTest("lme4")
-pkgTest("lmtest")
-pkgTest("magrittr")
-pkgTest("MASS")
-pkgTest("Matrix")
 pkgTest("mice")
-pkgTest("nlme")
-pkgTest("plot3D")
-pkgTest("psych")
-pkgTest("rstan")
-pkgTest("semPlot")
-pkgTest("shinystan")
-pkgTest("sjPlot")
 pkgTest("tidyverse")
-pkgTest("tinytable")
-pkgTest("vegan")
+pkgTest("psych")
+pkgTest("blavaan")
+pkgTest("bayesplot")
+pkgTest("semPlot")
+pkgTest("semptools")
+
 
 options(mc.cores = parallel::detectCores())
-
+future::plan("multisession")
 
 ##### MODE FUNCTION ###
 ########################
@@ -58,7 +40,7 @@ mode_calc = function(x, na.rm = FALSE) {
 ##########HERBVAR DATA############################
 ######################################3
 
-herbvar = read_csv(file = "Documents/GitHub/EECB1000_Causality/pivoted.csv")
+herbvar = read.csv("pivoted.csv")
 ### Two notes: 
 ### I used the  plantHeight_cm column for plant height,
 ### but sizeCentscale seemed to be the most complete 
@@ -80,13 +62,13 @@ herbvar_q =
             std = sqrt(var(leaf_percent)), 
             vari = var(leaf_percent),
             mode = mode_calc(leaf_percent),
-            skew = skew(leaf_percent), 
-            kurt = kurt(leaf_percent),
+            skew = skewness(leaf_percent), 
+            kurt = kurtosis(leaf_percent),
             cv = std/mean,
             MAD_median = mad(leaf_percent, center = median(leaf_percent)),
             MAD_mean = mad(leaf_percent, center = mean(leaf_percent), na.rm = TRUE),
-            sarle_bimo = (skew(leaf_percent)^2 + 1)/
-                          (kurt(leaf_percent)+
+            sarle_bimo = (skewness(leaf_percent)^2 + 1)/
+                          (kurtosis(leaf_percent)+
                              ((3*(length(leaf_percent)-1)^2)/
                                 ((length(leaf_percent)-2)*(length(leaf_percent)-3))
                               )
@@ -107,21 +89,6 @@ hist(log(herbvar_q$vari))
 hist((herbvar_q$skew)) 
 hist((herbvar_q$kurt)) # --> consider bimodal dist, or heavily right skewed 
 
-# Gamma dist with moments matched
-plot(0, 0, xlim = c(0, 10), ylim = c(0, 10), type = "n")
-shape = herbvar_q$alpha_gamma
-rate = herbvar_q$beta_gamma  
-for(i in seq_along(shape)){
-  curve(dgamma(x, shape = shape[i], rate = rate[i]), from = 0, to = 10, col = i, add = TRUE)
-}
-
-# Beta dist with moments matched
-plot(0, 0, xlim = c(0, 1), ylim = c(0, 5), type = "n")
-shape1 = herbvar_q$alpha_beta
-shape2 = herbvar_q$beta_beta  
-for(i in seq_along(shape1)){
-  curve(dbeta(x, shape1 = shape1[i], shape2 = shape2[i]), from = 0, to = 10, col = i, add = TRUE)
-}
 
 ### Plant height predicting mean ####
 
@@ -318,24 +285,6 @@ herbvar_q %>%
   ylab('Count') +   
   theme_grey(base_size = 16)
 
-### 3D plots ####
-
-p  = cloud(MAD_mean ~ plant_size*Lat_abs, pch=".", data = herbvar_q)
-s = xyplot(Lat_abs ~ plant_size, pch=".", aspect = 2.44, data = herbvar_q)
-print(s, split = c(1, 1, 2, 1), more = TRUE)
-print(p, split = c(2, 1, 2, 1))
-
-scatter3D(herbvar_q$Lat_abs, herbvar_q$plant_size, herbvar_q$mean,
-          clab = c("MAD","mean"),
-          theta = 60, phi = 5,
-          pch = 18, bty = "u", colkey = TRUE, ticktype = "detailed",
-          main ="Lat_abs x Plant size x MAD", col.panel ="steelblue", expand =0.4, 
-          col.grid = "darkblue")
-
-scatter3D(herbvar_q$Lat_abs, herbvar_q$plant_size, herbvar_q$MAD_mean, 
-          theta = 15, phi = 90)
-
-
 ###### IMPUTATION      ###########
 
 herbvar_f = herbvar_q %>% filter(!is.na(Lat_abs))
@@ -357,12 +306,16 @@ head(imputation1$data$skew)
 # Reincorporating it into the rest of the data
 herbvar_f = complete(imputation1, 1)
 
+herbvar_f = herbvar_f %>% 
+  filter(!is.na(skew)) %>% 
+  filter(!is.infinite(skew))
 ######### FACTOR ANALYSIS ########
 
 vars = as.matrix(herbvar_f[,c(6,7,8,10,12,13,14,15)])
 DH.test(herbvar_f[,c(5:15)], Y.names = NULL)
 
-vars <- decostand(vars, method = "standardize")
+vars = apply(vars[,], MARGIN = 2, scale)
+
 
 factor = factanal(vars, factors = 3, rotation ="promax", scores = "regression")
 load  = factor$loadings
@@ -403,9 +356,10 @@ summary(model3)
 model4 = glm(skew_kurt + variance_q3_mean + q1_median_mode ~ Lat_abs + plant_size, family = "gaussian", data = herbvar_f)
 summary(model4)
 
-herbvar_scaled = apply(herbvar_f[,c(3:26)], MARGIN = 2, scale)
-
 ##########SEM MODELS ###############
+
+
+herbvar_scaled = apply(herbvar_f[,c(3:26)], MARGIN = 2, scale)
 
 ### SEM Model 1: using factors made with FA #########
 
@@ -517,6 +471,7 @@ summary(cfa_fit_5, rsq = TRUE, fit.measures = TRUE, standardized = TRUE)
 
 bsem_fit_5 = bcfa(sem_mod_5, data = herbvar_scaled, mcmcfile = T)
 summary(bsem_fit_5)
+coef(bsem_fit_5)
 
 posterior_samples <- parameterEstimates(bsem_fit_5, standardized = TRUE, 
                                         level = 0.95, ci = TRUE, se = TRUE)
@@ -548,6 +503,13 @@ plot(bsem_fit_5, pars = 4:9, plot.type = "trace")
 
 bind_cols(parameterEstimates(cfa_fit_5)[, 1:4], 
           parameterEstimates(bsem_fit_5)[, 4]) %>% rename(ML = est, Bayes = ...5) %>% knitr::kable()
+
+######## DAG 
+semPaths(bsem_fit_5, what = "est", layout = "spring", edge.label.cex = 0.8,
+         nCharNodes = 0, nCharEdges = 0, residuals = TRUE)
+
+#final_semplot = mark_se(semplot,object = bsem_fit_5, sep = "\n", digits = 3)
+#plot(final_semplot)
 
 ### SEM Model 6: making factors that are more intuitive ##### 
 
@@ -597,151 +559,7 @@ est_ML = parameterestimates(cfa_fit_6)[,1:4] %>%
 results_table = as.data.frame(est_ML)
 tt(results_table, theme = "striped", digits = 5) |> style_tt(j = 1, align = "c")
 
-########## REFERENCES ############################
+######## DAG 
+semPaths(bsem_fit_6, what = "est", layout = "spring", edge.label.cex = 0.8,
+         nCharNodes = 0, nCharEdges = 0, residuals = TRUE)
 
-
-############## ZERO INFLATED JAGS CODE #######################
-
-model{
-  
-  # For the ones trick
-  C <- 10000
-  
-  # for every observation
-  for(i in 1:N){
-    
-    # define the logistic regression model, where w is the probability of occurance.
-    # use the logistic transformation exp(z)/(1 + exp(z)), where z is a linear function
-    logit(w[i]) <- zeta[i]
-    zeta[i] <- gamma0 + gamma1*MPD[i] + gamma2*MTD[i] + gamma3*int[i] + gamma4*MPD[i]*int[i] + gamma5*MTD[i]*int[i]
-    
-    # define the gamma regression model for the mean. use the log link the ensure positive, non-zero mu
-    mu[i] <- pow(eta[i], -1)
-    eta[i] <- beta0 + beta1*MPD[i] + beta2*MTD[i] + beta3*int[i] + beta4*MPD[i]*int[i] + beta5*MTD[i]*int[i]
-    
-    # redefine the mu and sd of the continuous part into the shape and scale parameters
-    shape[i] <- pow(mu[i], 2) / pow(sd, 2)
-    rate[i] <- mu[i] / pow(sd, 2)
-    
-    # for readability, define the log-likelihood of the gamma here
-    logGamma[i] <- log(dgamma(y[i], shape[i], rate[i]))
-    
-    # define the total likelihood, where the likelihood is (1 - w) if y < 0.0001 (z = 0) or
-    # the likelihood is w * gammalik if y >= 0.0001 (z = 1). So if z = 1, then the first bit must be
-    # 0 and the second bit 1. Use 1 - z, which is 0 if y > 0.0001 and 1 if y < 0.0001
-    logLik[i] <- (1 - z[i]) * log(1 - w[i]) + z[i] * ( log(w[i]) + logGamma[i] )
-    
-    Lik[i] <- exp(logLik[i])
-    
-    # Use the ones trick
-    p[i] <- Lik[i] / C
-    ones[i] ~ dbern(p[i])
-  }
-  
-  # PRIORS
-  beta0 ~ dnorm(0, 0.0001)
-  beta1 ~ dnorm(0, 0.0001)
-  beta2 ~ dnorm(0, 0.0001)
-  beta3 ~ dnorm(0, 0.0001)
-  beta4 ~ dnorm(0, 0.0001)
-  beta5 ~ dnorm(0, 0.0001)
-  
-  gamma0 ~ dnorm(0, 0.0001)
-  gamma1 ~ dnorm(0, 0.0001)
-  gamma2 ~ dnorm(0, 0.0001)
-  gamma3 ~ dnorm(0, 0.0001)
-  gamma4 ~ dnorm(0, 0.0001)
-  gamma5 ~ dnorm(0, 0.0001)
-  
-  sd ~ dgamma(2, 2)
-  
-}
-
-################## BLAVAAN EXAMPLE #######
-
-### SIMULATION #
-
-# setup
-J <- 1000
-I <- 6
-K <- 2
-psi <- matrix(c(1, 0.5,
-                0.5, 0.8), nrow = K)  
-beta <- seq(1, 2, by = .2)
-
-# loading matrix
-Lambda <- cbind(c(1, 1.5, 2, 0, 0, 0), c(0, 0, 0, 1, 1.5, 2))
-
-# error covariance
-Theta <- diag(0.3, nrow = I)
-
-# factor scores
-eta <- mvrnorm(J, mu = c(0, 0), Sigma = psi)
-
-# error term
-epsilon <- mvrnorm(J, mu = rep(0, ncol(Theta)),Sigma = Theta)
-
-dat <- tcrossprod(eta, Lambda) + epsilon
-dat_cfa  <-  dat %>% as.data.frame() %>% setNames(c("Y1", "Y2", "Y3", "Y4", "Y5", "Y6"))
-
-lavaan_cfa <- 'eta1 =~ Y1 + Y2 + Y3
-               eta2 =~ Y4 + Y5 + Y6'
-
-FIT <-
-  semPlotModel_lavaanModel(
-    lavaan_cfa,
-    auto.var = TRUE,
-    auto.fix.first = TRUE,
-    auto.cov.lv.x = TRUE
-  )
-semPaths(
-  FIT,
-  what = "paths",
-  whatLabels = "par",
-  ,
-  nodeLabels = c(
-    expression(paste(Y[1])),
-    expression(paste(Y[2])),
-    expression(paste(Y[3])),
-    expression(paste(Y[4])),
-    expression(paste(Y[5])),
-    expression(paste(Y[6])),
-    expression(paste(eta[1])),
-    expression(paste(eta[2]))
-  ),
-  edge.label.cex = 0.8,
-  edgeLabels = c(
-    expression(paste(lambda[1])),
-    expression(paste(lambda[2])),
-    expression(paste(lambda[3])),
-    expression(paste(lambda[4])),
-    expression(paste(lambda[5])),
-    expression(paste(lambda[6])),
-    expression(paste("Covariance")),
-    expression(paste(epsilon[1])),
-    expression(paste(epsilon[2])),
-    expression(paste(epsilon[3])),
-    expression(paste(epsilon[4])),
-    expression(paste(epsilon[5])),
-    expression(paste(epsilon[6])),
-    expression(paste(psi[1])),
-    expression(paste(psi[2]))
-  )
-)
-
-# blavaan
-blav_cfa_fit <- bcfa(lavaan_cfa, data=dat_cfa, mcmcfile = T)
-
-summary(blav_cfa_fit)
-
-fitmeasures(blav_cfa_fit)
-
-blavInspect(blav_cfa_fit, "mcobj")
-
-(default_prior <- dpriors())
-
-(new_prior <- dpriors(beta = "normal(0, 1)"))
-
-#comparison
-
-bind_cols(parameterEstimates(blav_cfa_fit)[, 1:4], parameterEstimates(blav_cfa_fit)[, 4]) %>% rename(ML = est, Bayes = ...5) %>% knitr::kable()
